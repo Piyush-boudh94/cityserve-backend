@@ -2,10 +2,10 @@
 nixPkgs = ["nodejs_20", "nodePackages.pnpm"]
 
 [phases.install]
-cmds = ["pnpm install --frozen-lockfile"]
+cmds = ["npx -y pnpm@10.33.2 install --frozen-lockfile"]
 
 [phases.build]
-cmds = ["pnpm --filter @workspace/db run build 2>/dev/null || true", "pnpm --filter @workspace/api-server run build"]
+cmds = ["npx -y pnpm@10.33.2 --filter @workspace/db run build 2>/dev/null || true", "npx -y pnpm@10.33.2 --filter @workspace/api-server run build"]
 
 [start]
-cmd = "pnpm --filter @workspace/api-server run start"
+cmd = "npx -y pnpm@10.33.2 --filter @workspace/api-server run start"
