@@ -8,4 +8,4 @@ cmds = ["npx -y pnpm@10.33.2 install --frozen-lockfile"]
 cmds = ["npx -y pnpm@10.33.2 --filter @workspace/db run build 2>/dev/null || true", "npx -y pnpm@10.33.2 --filter @workspace/api-server run build"]
 
 [start]
-cmd = "npx -y pnpm@10.33.2 --filter @workspace/api-server run start"
+	cmd = "node --enable-source-maps ./artifacts/api-server/dist/index.mjs"
