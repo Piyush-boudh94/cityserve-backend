@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "iA3Z4v6GbvilnyP6eQxKT"
+uri = "file://cityserve-backend-railway.tar.gz"
+type = "unspecified"
+title = "CityServe Backend — Ready for Railway & GitHub"
