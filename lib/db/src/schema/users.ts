@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, pgEnum, integer, boolean } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, pgEnum, integer, boolean, unique } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -18,7 +18,9 @@ export const usersTable = pgTable("users", {
   fcmToken: text("fcm_token"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (t) => [
+  unique().on(t.phone),
+]);
 
 export const insertUserSchema = createInsertSchema(usersTable).omit({
   id: true,

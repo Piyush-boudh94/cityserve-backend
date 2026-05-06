@@ -43,6 +43,11 @@ function adminDomainHint(): string {
   return allowedAdminDomains.map((d) => `@${d}`).join(", ");
 }
 
+function isUniqueViolation(err: unknown): boolean {
+  return typeof err === "object" && err !== null && "code" in err
+    && (err as { code?: string }).code === "23505";
+}
+
 // POST /api/auth/citizen/firebase — Firebase phone auth token verification
 router.post("/auth/citizen/firebase", async (req, res) => {
   const schema = z.object({
@@ -75,18 +80,39 @@ router.post("/auth/citizen/firebase", async (req, res) => {
     .limit(1);
 
   if (!user) {
-    const [created] = await db.insert(usersTable).values({
-      fullName: parsed.data.name ?? decoded.name ?? (decoded.phone ? `User ${decoded.phone.slice(-4)}` : "Citizen"),
-      phone: decoded.phone ?? null,
-      email: decoded.email ?? null,
-      firebaseUid: decoded.uid,
-      avatarUrl: decoded.picture ?? null,
-      wardId: parsed.data.ward_id ?? null,
-      fcmToken: parsed.data.fcm_token ?? null,
-      role: "citizen",
-      isActive: true,
-    }).returning();
-    user = created;
+    try {
+      const [created] = await db.insert(usersTable).values({
+        fullName: parsed.data.name ?? decoded.name ?? (decoded.phone ? `User ${decoded.phone.slice(-4)}` : "Citizen"),
+        phone: decoded.phone ?? null,
+        email: decoded.email ?? null,
+        firebaseUid: decoded.uid,
+        avatarUrl: decoded.picture ?? null,
+        wardId: parsed.data.ward_id ?? null,
+        fcmToken: parsed.data.fcm_token ?? null,
+        role: "citizen",
+        isActive: true,
+      }).returning();
+      user = created;
+    } catch (err) {
+      if (!isUniqueViolation(err)) {
+        throw err;
+      }
+
+      const [existing] = await db
+        .select()
+        .from(usersTable)
+        .where(
+          or(
+            eq(usersTable.firebaseUid, decoded.uid),
+            decoded.phone ? eq(usersTable.phone, decoded.phone) : undefined,
+          )
+        )
+        .limit(1);
+      if (!existing) {
+        throw err;
+      }
+      user = existing;
+    }
   } else {
     const updates: Partial<typeof usersTable.$inferInsert> = {
       firebaseUid: decoded.uid,
@@ -110,6 +136,30 @@ router.post("/auth/citizen/firebase", async (req, res) => {
     success: true,
     data: { token, access_token: token, user: safeUser(user) },
     message: "Login successful",
+  });
+});
+
+// POST /api/auth/citizen/check-phone — check if a citizen phone exists
+router.post("/auth/citizen/check-phone", async (req, res) => {
+  const schema = z.object({
+    phone: z.string().min(1),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, message: "phone is required" });
+    return;
+  }
+
+  const [user] = await db
+    .select({ id: usersTable.id })
+    .from(usersTable)
+    .where(eq(usersTable.phone, parsed.data.phone))
+    .limit(1);
+
+  res.json({
+    success: true,
+    data: { exists: !!user },
+    message: "OK",
   });
 });
 
@@ -183,14 +233,29 @@ router.post("/auth/citizen/verify-otp", async (req, res) => {
     .limit(1);
 
   if (!user) {
-    const [created] = await db.insert(usersTable).values({
-      fullName: parsed.data.name ?? `User ${session.phone.slice(-4)}`,
-      phone: session.phone,
-      wardId: parsed.data.ward_id ?? null,
-      role: "citizen",
-      isActive: true,
-    }).returning();
-    user = created;
+    try {
+      const [created] = await db.insert(usersTable).values({
+        fullName: parsed.data.name ?? `User ${session.phone.slice(-4)}`,
+        phone: session.phone,
+        wardId: parsed.data.ward_id ?? null,
+        role: "citizen",
+        isActive: true,
+      }).returning();
+      user = created;
+    } catch (err) {
+      if (!isUniqueViolation(err)) {
+        throw err;
+      }
+      const [existing] = await db
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.phone, session.phone))
+        .limit(1);
+      if (!existing) {
+        throw err;
+      }
+      user = existing;
+    }
   } else if (parsed.data.name || parsed.data.ward_id) {
     const [updated] = await db.update(usersTable).set({
       ...(parsed.data.name ? { fullName: parsed.data.name } : {}),
