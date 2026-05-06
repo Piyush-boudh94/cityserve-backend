@@ -11,6 +11,8 @@ export const complaintUpdatesTable = pgTable("complaint_updates", {
     .references(() => complaintsTable.id),
   status: text("status").notNull(),
   note: text("note"),
+  progressPercent: integer("progress_percent"),
+  imageUrl: text("image_url"),
   updatedById: integer("updated_by_id")
     .notNull()
     .references(() => usersTable.id),

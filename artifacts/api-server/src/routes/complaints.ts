@@ -61,6 +61,10 @@ function formatComplaint(c: typeof complaintsTable.$inferSelect) {
     address: c.address ?? null,
     image_url: c.imageUrl ?? null,
     imageUrl: c.imageUrl ?? null,
+    resolution_image_url: c.resolutionImageUrl ?? null,
+    resolutionImageUrl: c.resolutionImageUrl ?? null,
+    progress_percent: c.progressPercent ?? 0,
+    progressPercent: c.progressPercent ?? 0,
     ward_id: c.wardId ?? null,
     upvote_count: c.upvoteCount,
     user_id: c.userId,
@@ -301,6 +305,10 @@ router.put("/complaints/:id/status", requireAuth, requireRole("admin", "worker")
   const schema = z.object({
     status: z.enum(["pending", "assigned", "in_progress", "resolved", "closed"]),
     note: z.string().optional(),
+    progress: z.number().int().min(0).max(100).optional(),
+    progress_percent: z.number().int().min(0).max(100).optional(),
+    image_url: z.string().optional(),
+    imageUrl: z.string().optional(),
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
@@ -314,8 +322,16 @@ router.put("/complaints/:id/status", requireAuth, requireRole("admin", "worker")
     return;
   }
 
+  const progress = parsed.data.progress ?? parsed.data.progress_percent;
+  const imageUrl = parsed.data.image_url ?? parsed.data.imageUrl;
+
   const [updated] = await db.update(complaintsTable)
-    .set({ status: parsed.data.status, updatedAt: new Date() })
+    .set({
+      status: parsed.data.status,
+      updatedAt: new Date(),
+      progressPercent: progress ?? existing.progressPercent,
+      resolutionImageUrl: imageUrl ?? existing.resolutionImageUrl,
+    })
     .where(eq(complaintsTable.id, id))
     .returning();
 
@@ -323,6 +339,8 @@ router.put("/complaints/:id/status", requireAuth, requireRole("admin", "worker")
     complaintId: id,
     status: parsed.data.status,
     note: parsed.data.note ?? null,
+    progressPercent: progress ?? null,
+    imageUrl: imageUrl ?? null,
     updatedById: req.user!.userId,
   });
 

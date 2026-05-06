@@ -36,6 +36,8 @@ export const complaintsTable = pgTable("complaints", {
   longitude: doublePrecision("longitude"),
   address: text("address"),
   imageUrl: text("image_url"),
+  resolutionImageUrl: text("resolution_image_url"),
+  progressPercent: integer("progress_percent").notNull().default(0),
   wardId: integer("ward_id"),
   upvoteCount: integer("upvote_count").notNull().default(0),
   userId: integer("user_id")
