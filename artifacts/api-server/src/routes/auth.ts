@@ -26,6 +26,23 @@ function safeUser(user: typeof usersTable.$inferSelect) {
   };
 }
 
+const allowedAdminDomains = (process.env.ADMIN_EMAIL_DOMAINS
+  ?? process.env.ADMIN_EMAIL_DOMAIN
+  ?? "bmu.edu.in")
+  .split(",")
+  .map((d) => d.trim().toLowerCase().replace(/^@/, ""))
+  .filter(Boolean);
+
+function isAllowedAdminEmail(email: string | null | undefined): boolean {
+  if (!email) return false;
+  const lower = email.toLowerCase();
+  return allowedAdminDomains.some((domain) => lower.endsWith(`@${domain}`));
+}
+
+function adminDomainHint(): string {
+  return allowedAdminDomains.map((d) => `@${d}`).join(", ");
+}
+
 // POST /api/auth/citizen/firebase — Firebase phone auth token verification
 router.post("/auth/citizen/firebase", async (req, res) => {
   const schema = z.object({
@@ -59,10 +76,11 @@ router.post("/auth/citizen/firebase", async (req, res) => {
 
   if (!user) {
     const [created] = await db.insert(usersTable).values({
-      fullName: parsed.data.name ?? (decoded.phone ? `User ${decoded.phone.slice(-4)}` : "Citizen"),
+      fullName: parsed.data.name ?? decoded.name ?? (decoded.phone ? `User ${decoded.phone.slice(-4)}` : "Citizen"),
       phone: decoded.phone ?? null,
       email: decoded.email ?? null,
       firebaseUid: decoded.uid,
+      avatarUrl: decoded.picture ?? null,
       wardId: parsed.data.ward_id ?? null,
       fcmToken: parsed.data.fcm_token ?? null,
       role: "citizen",
@@ -77,6 +95,7 @@ router.post("/auth/citizen/firebase", async (req, res) => {
     if (parsed.data.name) updates.fullName = parsed.data.name;
     if (parsed.data.ward_id) updates.wardId = parsed.data.ward_id;
     if (parsed.data.fcm_token) updates.fcmToken = parsed.data.fcm_token;
+    if (decoded.picture) updates.avatarUrl = decoded.picture;
 
     const [updated] = await db
       .update(usersTable)
@@ -193,6 +212,7 @@ router.post("/auth/citizen/verify-otp", async (req, res) => {
 router.post("/auth/admin", async (req, res) => {
   const schema = z.object({
     firebase_token: z.string().optional(),
+    name: z.string().optional(),
     email: z.string().email().optional(),
     password: z.string().optional(),
   });
@@ -211,32 +231,63 @@ router.post("/auth/admin", async (req, res) => {
       return;
     }
 
+    const email = decoded.email ?? parsed.data.email ?? null;
+    if (!isAllowedAdminEmail(email)) {
+      res.status(403).json({ success: false, message: `Only ${adminDomainHint()} accounts are allowed` });
+      return;
+    }
+
+    const displayName = decoded.name ?? parsed.data.name ?? (email ? email.split("@")[0] : "Admin");
+    const avatarUrl = decoded.picture ?? null;
+
     const candidates = await db
       .select()
       .from(usersTable)
       .where(
         or(
           eq(usersTable.firebaseUid, decoded.uid),
-          decoded.email ? eq(usersTable.email, decoded.email) : undefined,
+          email ? eq(usersTable.email, email) : undefined,
         )
       )
       .limit(1);
     user = candidates[0];
 
     if (!user) {
-      res.status(403).json({ success: false, message: "Admin account not found. Create it in the database first." });
-      return;
+      const [created] = await db.insert(usersTable).values({
+        fullName: displayName,
+        email,
+        firebaseUid: decoded.uid,
+        avatarUrl,
+        role: "admin",
+        isActive: true,
+      }).returning();
+      user = created;
+    } else {
+      const updates: Partial<typeof usersTable.$inferInsert> = { updatedAt: new Date() };
+      if (!user.firebaseUid) updates.firebaseUid = decoded.uid;
+      if (email && user.email !== email) updates.email = email;
+      if (displayName && user.fullName !== displayName) updates.fullName = displayName;
+      if (avatarUrl && user.avatarUrl !== avatarUrl) updates.avatarUrl = avatarUrl;
+      if (user.role === "citizen") updates.role = "admin";
+
+      if (Object.keys(updates).length > 1) {
+        const [updated] = await db.update(usersTable)
+          .set(updates)
+          .where(eq(usersTable.id, user.id))
+          .returning();
+        user = updated;
+      }
     }
 
     if (user.role === "citizen") {
       res.status(403).json({ success: false, message: "Access denied — not an admin or worker account" });
       return;
     }
-
-    if (!user.firebaseUid) {
-      await db.update(usersTable).set({ firebaseUid: decoded.uid, updatedAt: new Date() }).where(eq(usersTable.id, user.id));
-    }
   } else if (parsed.data.email && parsed.data.password) {
+    if (!isAllowedAdminEmail(parsed.data.email)) {
+      res.status(403).json({ success: false, message: `Only ${adminDomainHint()} accounts are allowed` });
+      return;
+    }
     const [found] = await db
       .select()
       .from(usersTable)

@@ -75,7 +75,7 @@ export function notifyMany(fcmTokens: Array<string | null | undefined>, notifica
   }
 }
 
-export async function verifyFirebaseToken(idToken: string): Promise<{ uid: string; phone?: string; email?: string } | null> {
+export async function verifyFirebaseToken(idToken: string): Promise<{ uid: string; phone?: string; email?: string; name?: string; picture?: string } | null> {
   const app = await getApp();
   if (!app) {
     // Dev mode: decode without verification
@@ -83,7 +83,13 @@ export async function verifyFirebaseToken(idToken: string): Promise<{ uid: strin
       const parts = idToken.split(".");
       if (parts.length !== 3) return null;
       const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString());
-      return { uid: payload.uid ?? payload.sub, phone: payload.phone_number, email: payload.email };
+      return {
+        uid: payload.uid ?? payload.sub,
+        phone: payload.phone_number,
+        email: payload.email,
+        name: payload.name,
+        picture: payload.picture,
+      };
     } catch {
       return null;
     }
@@ -91,7 +97,13 @@ export async function verifyFirebaseToken(idToken: string): Promise<{ uid: strin
   try {
     const { getAuth } = await import("firebase-admin/auth");
     const decoded = await getAuth(app).verifyIdToken(idToken);
-    return { uid: decoded.uid, phone: decoded.phone_number, email: decoded.email };
+    return {
+      uid: decoded.uid,
+      phone: decoded.phone_number,
+      email: decoded.email,
+      name: decoded.name,
+      picture: decoded.picture,
+    };
   } catch (err) {
     logger.warn({ err }, "Firebase token verification failed");
     return null;
